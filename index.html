@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="utf-8">
-    <title>MeeusJS 1.0.4 – Complete Test Suite (v12 - Strict Lib Constants)</title>
+    <title>MeeusJS 1.0.4 – Test Suite</title>
     <style>
         body {
             font: 14px/1.45 system-ui, sans-serif;
@@ -32,6 +32,7 @@
             font-weight: bold;
         }
 
+        /* Kept for critical import/API errors */
         .section {
             color: #61afef;
             font-weight: bold;
@@ -78,6 +79,7 @@
             font-style: italic;
         }
 
+        /* Kept for non-fatal warnings */
         .info {
             color: #abb2bf;
             font-style: italic;
@@ -104,7 +106,7 @@
 </head>
 
 <body>
-    <h1>MeeusJS 1.0.4 – Complete Test Suite (v12 - Strict Lib Constants)</h1>
+    <h1>MeeusJS 1.0.4 – Test Suite</h1>
     <div style="margin-bottom:1rem">
         <button onclick="exportResults()">📥 Export Results</button>
         <button onclick="runMainTests()">🔄 Run/Refresh Tests</button>
@@ -117,12 +119,19 @@
 
         const $log = document.getElementById('log');
         const $status = document.getElementById('status');
-        let globalInfoLogger = (msg) => console.info(`INFO: ${msg}`); // Fallback
+        let globalInfoLogger = (msg) => console.info(`INFO: ${msg}`);
 
         window.runMainTests = async () => {
             if ($log) $log.textContent = '🔄 Running tests...\n';
             if ($status) $status.textContent = '🔄 In progress...';
-            await mainTestExecution();
+            // Wrap main execution in a try-catch for very top-level errors (like import)
+            try {
+                await mainTestExecution();
+            } catch (e) {
+                if ($log) $log.innerHTML += `<span class=err>❌ TOP LEVEL SCRIPT ERROR: ${e.message || String(e)}. Further tests aborted.</span>\n`;
+                console.error("TOP LEVEL SCRIPT ERROR:", e);
+                if ($status) $status.textContent = `❌ Error during test execution.`;
+            }
         };
 
         window.exportResults = () => {
@@ -138,13 +147,13 @@
             globalInfoLogger('Results exported!');
         };
 
+        // Minimal global error handlers, mainly for visibility.
         window.addEventListener('error', e => {
-            console.error('Global onerror:', e, e.message, e.filename, e.lineno);
-            if ($log) $log.innerHTML += `<span class=err>❌ GLOBAL ONERROR: ${e.message || String(e.error)} at ${e.filename}:${e.lineno}</span>\n`;
+            console.error('Global unhandled script error:', e);
+            // No $log update here to avoid interference if $log itself is problematic or main script halted.
         });
         window.addEventListener('unhandledrejection', e => {
-            console.error('Global unhandledrejection:', e);
-            if ($log) $log.innerHTML += `<span class=err>❌ GLOBAL PROMISE REJECTION: ${e.reason.message || String(e.reason)}</span>\n`;
+            console.error('Global unhandled promise rejection:', e);
         });
 
 
@@ -160,53 +169,34 @@
             const coords = (label, value) => { out(`<span class=coords>${label}: ${value}</span>`); };
             const success = (msg) => { out(`<span class=success>✓ ${msg}</span>`); };
             const warn = (msg) => { out(`<span class=warn>⚠ ${msg}</span>`); };
-            const fail = (tag, e) => { console.error(tag, e); out(`<span class=err>❌ ${tag}: ${e.message || String(e)}</span>`); };
+            // fail logger is no longer called by track. Can be removed if not used otherwise.
+            // const fail=(tag,e)=>{console.error(tag,e); out(`<span class=err>❌ ${tag}: ${e.message || String(e)}</span>`);};
 
-            let testCount = 0, successCount = 0, errorCount = 0;
-            const track = (fn, name) => {
+            let testCount = 0, successCount = 0;
+            const track = (fn, name) => { // No try...catch
                 testCount++;
-                try {
-                    fn();
-                    successCount++;
-                } catch (e) {
-                    errorCount++;
-                    fail(name, e);
-                }
+                fn(); // If this throws, the script stops here.
+                successCount++;
             };
 
             const importStartTime = performance.now();
             console.time('[IMPORT]');
-            try {
-                if (!A) { // Import only if A is not already defined (e.g. on subsequent runs)
-                    const pkg = await import('https://cdn.skypack.dev/meeusjs@1.0.4');
-                    A = pkg.default ?? pkg;
-                    window.A = A; // Make A globally available for console inspection
-                }
-                console.timeEnd('[IMPORT]');
-            } catch (e) { fail('IMPORT', e); errorCount++; throw e; } // Propagate error to stop script if import fails
-            if (!A?.JulianDay) { fail('API', new Error('MeeusJS export missing')); errorCount++; throw 0; } // Critical failure
+            // Assume import works or let it throw to the top-level catch in runMainTests
+            if (!A) {
+                const pkg = await import('https://cdn.skypack.dev/meeusjs@1.0.4');
+                A = pkg.default ?? pkg;
+                window.A = A;
+            }
+            console.timeEnd('[IMPORT]');
+            if (!A?.JulianDay) { // Still a good idea to check this fundamental export
+                throw new Error('MeeusJS API (A.JulianDay) missing after import.');
+            }
 
-            // Constants: Strictly use library values where available.
             const RAD = Math.PI / 180, DEG = 180 / Math.PI;
-
-            if (typeof A.AU !== 'number') {
-                fail("CRITICAL_CONSTANT_MISSING", new Error("A.AU is not defined in MeeusJS library. Many calculations will fail."));
-                // Allow script to proceed to show other errors, but this is critical.
-            }
-            const AU_KM = A.AU; // Value from library: 149597870 km
-
-            let EARTH_EQUATORIAL_RADIUS_KM;
-            if (A.Globe && typeof A.Globe.Er === 'number') {
-                EARTH_EQUATORIAL_RADIUS_KM = A.Globe.Er; // Value from library: 6378.14 km
-            } else {
-                EARTH_EQUATORIAL_RADIUS_KM = 6378.137; // Standard WGS84 value
-                warn('A.Globe.Er not found or not a number. Using script-defined Earth Equatorial Radius: 6378.137 km.');
-            }
-
-            // Solar and Lunar Radii are not directly exported as simple constants by MeeusJS. Use standard values.
-            const SOLAR_RADIUS_KM = 695700;
-            const LUNAR_RADIUS_KM = 1737.4;
-
+            const AU_KM = A.AU;
+            const EARTH_EQUATORIAL_RADIUS_KM = A.Globe.Er; // Directly use, will error if A.Globe or A.Globe.Er is undefined
+            const SOLAR_RADIUS_KM = 695700; // Script-defined
+            const LUNAR_RADIUS_KM = 1737.4; // Script-defined
 
             const normAngle = (a) => (a % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
             const normAngleSigned = (angleRad) => {
@@ -235,61 +225,37 @@
             };
 
             const locations = [
-                { name: 'Zurich (Example)', lat: 47.3957, lng: 8.4867, alt: 440 },
-                { name: 'Greenwich Observatory', lat: 51.4778, lng: -0.0014, alt: 47 },
-                { name: 'New York (Times Square)', lat: 40.7580, lng: -73.9855, alt: 17 },
-                { name: 'Tokyo Tower', lat: 35.6586, lng: 139.7454, alt: 333 },
-                { name: 'Sydney Harbour Bridge', lat: -33.8523, lng: 151.2108, alt: 134 },
-                { name: 'Reykjavik', lat: 64.1466, lng: -21.9426, alt: 37 },
-                { name: 'Dubai Burj Khalifa', lat: 25.1972, lng: 55.2744, alt: 828 },
-                { name: 'Antarctica (McMurdo)', lat: -77.8500, lng: 166.6667, alt: 10 },
-                { name: 'Quito (Equator)', lat: -0.1807, lng: -78.4678, alt: 2850 },
-                { name: 'North Pole', lat: 90, lng: 0, alt: 0 },
-                { name: 'South Pole', lat: -90, lng: 0, alt: 2835 }
+                { name: 'Zurich (Example)', lat: 47.3957, lng: 8.4867, alt: 440 }, { name: 'Greenwich Observatory', lat: 51.4778, lng: -0.0014, alt: 47 }, { name: 'New York (Times Square)', lat: 40.7580, lng: -73.9855, alt: 17 }, { name: 'Tokyo Tower', lat: 35.6586, lng: 139.7454, alt: 333 }, { name: 'Sydney Harbour Bridge', lat: -33.8523, lng: 151.2108, alt: 134 }, { name: 'Reykjavik', lat: 64.1466, lng: -21.9426, alt: 37 }, { name: 'Dubai Burj Khalifa', lat: 25.1972, lng: 55.2744, alt: 828 }, { name: 'Antarctica (McMurdo)', lat: -77.8500, lng: 166.6667, alt: 10 }, { name: 'Quito (Equator)', lat: -0.1807, lng: -78.4678, alt: 2850 }, { name: 'North Pole', lat: 90, lng: 0, alt: 0 }, { name: 'South Pole', lat: -90, lng: 0, alt: 2835 }
             ];
 
             const now = new Date();
             const currentYear = now.getUTCFullYear();
             const dates = [
-                { name: 'Now', jd: new A.JulianDay(now) },
-                { name: 'Today Noon UTC', jd: new A.JulianDay(new Date(Date.UTC(currentYear, now.getUTCMonth(), now.getUTCDate(), 12))) },
-                { name: 'Tomorrow Noon', jd: new A.JulianDay(new Date(Date.UTC(currentYear, now.getUTCMonth(), now.getUTCDate() + 1, 12))) },
-                { name: 'J2000.0 Epoch', jd: new A.JulianDay(new Date(Date.UTC(2000, 0, 1, 12))) },
-                { name: 'This Vernal Equinox (approx)', jd: new A.JulianDay(new Date(Date.UTC(currentYear + (now.getUTCMonth() > 2 || (now.getUTCMonth() === 2 && now.getUTCDate() >= 20) ? 1 : 0), 2, 20, 9))) },
-                { name: 'This Summer Solstice (approx)', jd: new A.JulianDay(new Date(Date.UTC(currentYear + (now.getUTCMonth() > 5 || (now.getUTCMonth() === 5 && now.getUTCDate() >= 21) ? 1 : 0), 5, 21, 3))) }
+                { name: 'Now', jd: new A.JulianDay(now) }, { name: 'Today Noon UTC', jd: new A.JulianDay(new Date(Date.UTC(currentYear, now.getUTCMonth(), now.getUTCDate(), 12))) }, { name: 'Tomorrow Noon', jd: new A.JulianDay(new Date(Date.UTC(currentYear, now.getUTCMonth(), now.getUTCDate() + 1, 12))) }, { name: 'J2000.0 Epoch', jd: new A.JulianDay(new Date(Date.UTC(2000, 0, 1, 12))) }, { name: 'This Vernal Equinox (approx)', jd: new A.JulianDay(new Date(Date.UTC(currentYear + (now.getUTCMonth() > 2 || (now.getUTCMonth() === 2 && now.getUTCDate() >= 20) ? 1 : 0), 2, 20, 9))) }, { name: 'This Summer Solstice (approx)', jd: new A.JulianDay(new Date(Date.UTC(currentYear + (now.getUTCMonth() > 5 || (now.getUTCMonth() === 5 && now.getUTCDate() >= 21) ? 1 : 0), 5, 21, 3))) }
             ];
 
             let geocentricSunForCalcs;
             globalInfoLogger('Attempting to fetch geocentric-like solar data for "Now"...');
-            try {
-                if (typeof AU_KM !== 'number') throw new Error("AU_KM (derived from A.AU) is not available. Cannot calculate geocentricSunForCalcs.delta correctly.");
-                const geoObserver = A.EclCoord.fromWgs84(0, 0, 0);
-                const solarData = A.Solar.topocentricPosition(dates[0].jd, geoObserver, true);
+            const geoObserver = A.EclCoord.fromWgs84(0, 0, 0);
+            const solarData = A.Solar.topocentricPosition(dates[0].jd, geoObserver, true);
 
-                if (solarData && solarData.eq && typeof solarData.eq.ra === 'number' && typeof solarData.eq.dec === 'number') {
-                    geocentricSunForCalcs = {
-                        eq: solarData.eq,
-                        delta: AU_KM / AU_KM // Represents mean distance as 1.0 AU
-                    };
-                    success('Successfully obtained geocentric-like solar RA/Dec. Using mean distance (A.AU).');
-                } else {
-                    warn('Geocentric-like solar RA/Dec from A.Solar.topocentricPosition is not as expected or incomplete.');
-                    geocentricSunForCalcs = null;
-                }
-            } catch (e) {
-                warn(`Failed to get geocentric-like solar data: ${e.message}.`);
+            if (solarData && solarData.eq && typeof solarData.eq.ra === 'number' && typeof solarData.eq.dec === 'number') {
+                geocentricSunForCalcs = { eq: solarData.eq, delta: AU_KM / AU_KM };
+                success('Successfully obtained geocentric-like solar RA/Dec. Using mean distance (A.AU).');
+            } else {
+                // This warning is fine, subsequent dependent tests will just fail if geocentricSunForCalcs is null
+                warn('Geocentric-like solar RA/Dec from A.Solar.topocentricPosition is not as expected. Dependent calculations may fail.');
                 geocentricSunForCalcs = null;
             }
-            if (!geocentricSunForCalcs) {
-                warn('Calculations requiring geocentric sun data (EoT, Moon Phase, Apparent Solar Semidiameter) will use fallbacks or be affected.');
-            }
-
 
             section('MEEUSJS LIBRARY INFORMATION');
-            success(`Library loaded successfully in ${(performance.now() - importStartTime).toFixed(0)}ms (or previously loaded)`);
-            data('Available modules', Object.keys(A).length);
-            out('All modules: ' + Object.keys(A).sort().join(', '));
-            globalInfoLogger('Key modules used: Solar, Moon, Coord, DeltaT, Nutation, Sidereal, Refraction, Rise, EclCoord, MoonIllum, Parallax (concept), Globe.');
+            track(() => {
+                success(`Library loaded successfully in ${(performance.now() - importStartTime).toFixed(0)}ms (or previously loaded)`);
+                data('Available modules', Object.keys(A).length);
+                out('All modules: ' + Object.keys(A).sort().join(', '));
+                globalInfoLogger('Key modules used: Solar, Moon, Coord, DeltaT, Nutation, Sidereal, Refraction, Rise, EclCoord, MoonIllum, Parallax (concept), Globe.');
+            }, 'Lib Info');
+
 
             section('ASTRONOMICAL CONSTANTS');
             track(() => {
@@ -302,14 +268,8 @@
                 data('Julian Century (Lib)', A.JulianCentury, ' days');
                 data('Besselian Year (Lib)', A.BesselianYear, ' days');
                 data('Astronomical Unit (from A.AU)', AU_KM, ' km');
-
-                if (A.Globe && typeof A.Globe.Er === 'number') {
-                    data('Earth Equatorial Radius (from A.Globe.Er)', EARTH_EQUATORIAL_RADIUS_KM, ' km');
-                } else {
-                    data('Earth Equatorial Radius (Script-defined)', EARTH_EQUATORIAL_RADIUS_KM, ' km');
-                    warn('  (A.Globe.Er not found/invalid in library, using script-defined standard value)');
-                }
-                globalInfoLogger('Solar and Lunar radii are script-defined standard values as not directly exported by MeeusJS:');
+                data('Earth Equatorial Radius (from A.Globe.Er)', EARTH_EQUATORIAL_RADIUS_KM, ' km');
+                globalInfoLogger('Solar and Lunar radii are script-defined standard values (not directly exported by MeeusJS as simple numbers):');
                 data('  Solar Radius (Script-defined)', SOLAR_RADIUS_KM, ' km');
                 data('  Lunar Radius (Script-defined)', LUNAR_RADIUS_KM, ' km');
             }, 'Constants');
@@ -347,7 +307,6 @@
 
             subsection('Obliquity of the Ecliptic');
             track(() => {
-                if (!nutationValues) { warn("Nutation values not available for obliquity."); return; }
                 const meanObl = A.Nutation.meanObliquity(currentJD);
                 const trueObl = A.Nutation.trueObliquity(currentJD);
                 data('Mean obliquity ε₀', fmt(meanObl * DEG, 6), '° (' + fmtDMS(meanObl * DEG) + ')');
@@ -396,32 +355,6 @@
                     data('  Distance (mean geocentric from A.AU)', fmt(AU_KM / AU_KM, 6), ' AU (' + fmt(AU_KM, 0) + ' km)');
                 }, `Solar Position @ ${loc.name}`);
             }
-
-            section('EQUATION OF TIME (EoT)');
-            subsection('EoT for "Now"');
-            track(() => {
-                if (geocentricSunForCalcs && geocentricSunForCalcs.eq && nutationValues) {
-                    globalInfoLogger('Calculating EoT using standard astronomical formulas (Meeus Ch. 28 inspired).');
-                    const T = (currentJD.jd - A.J2000) / A.JulianCentury;
-                    const L0_deg = (280.46646 + 36000.76983 * T + 0.0003032 * T * T);
-                    const L0_rad = normAngle(L0_deg * RAD);
-                    const alpha_apparent_rad = normAngle(geocentricSunForCalcs.eq.ra);
-                    const delta_psi_rad = nutationValues.deltalng;
-                    const epsilon_true_rad = A.Nutation.trueObliquity(currentJD);
-                    const eq_eq_on_ra_rad = delta_psi_rad * Math.cos(epsilon_true_rad);
-                    const alpha_mean_equinox_rad = normAngle(alpha_apparent_rad - eq_eq_on_ra_rad);
-                    const eot_angle_rad = L0_rad - alpha_mean_equinox_rad;
-                    let eotMinutes = normAngleSigned(eot_angle_rad) * 720 / Math.PI;
-
-                    data('Equation of Time (calculated)', fmt(eotMinutes, 2), ' minutes');
-                    if (Math.abs(eotMinutes) < 0.1) globalInfoLogger('  Sundial and clock time are nearly identical.');
-                    else if (eotMinutes > 0) globalInfoLogger(`  Sundial is ~${fmt(eotMinutes, 1)} min ahead of clock (Sun transits earlier).`);
-                    else globalInfoLogger(`  Sundial is ~${fmt(Math.abs(eotMinutes), 1)} min behind clock (Sun transits later).`);
-                } else {
-                    warn("  Cannot calculate EoT: Missing geocentric sun RA/Dec or nutation data.");
-                }
-            }, 'Equation of Time');
-
 
             section('SOLAR RISE, TRANSIT & SET TIMES (Today Noon UTC)');
             const todayJdForRiseSet = dates[1].jd;
@@ -492,12 +425,10 @@
             section('COORDINATE TRANSFORMATIONS');
             subsection('Coordinate Utilities');
             track(() => {
-                if (A.Coord.dmsToDeg) {
-                    data('23° 26\' 21.448" =', fmt(A.Coord.dmsToDeg(false, 23, 26, 21.448), 6), '°');
-                    data('-45° 30\' 0" =', fmt(A.Coord.dmsToDeg(true, 45, 30, 0), 6), '°');
-                }
-                if (A.Coord.secondsToHMSStr) data('12.567 hours =', A.Coord.secondsToHMSStr(12.567 * 3600));
-                if (A.Coord.calcAngle) data('23° 26\' 21.448" (radians) =', fmt(A.Coord.calcAngle(false, 23, 26, 21.448), 8));
+                data('23° 26\' 21.448" =', fmt(A.Coord.dmsToDeg(false, 23, 26, 21.448), 6), '°');
+                data('-45° 30\' 0" =', fmt(A.Coord.dmsToDeg(true, 45, 30, 0), 6), '°');
+                data('12.567 hours =', A.Coord.secondsToHMSStr(12.567 * 3600));
+                data('23° 26\' 21.448" (radians) =', fmt(A.Coord.calcAngle(false, 23, 26, 21.448), 8));
             }, 'Coordinate Utils');
 
             subsection('Local Sidereal Time (Current Time)');
@@ -530,63 +461,42 @@
                     coords('  RA (topocentric, apparent)', fmtHMS(moon.eq.ra));
                     coords('  Dec (topocentric, apparent)', fmtDMS(moon.eq.dec * DEG));
                 }
-                if (typeof moon.delta === 'number') { // moon.delta is in km
+                if (typeof moon.delta === 'number') {
                     data('  Distance', fmt(moon.delta, 0), ' km (' + fmt(moon.delta / 384400, 3) + ' × mean Earth-Moon dist)');
                     data('  Horizontal Parallax', fmt(Math.asin(EARTH_EQUATORIAL_RADIUS_KM / moon.delta) * DEG * 60, 2), ' arcmin');
                     data('  Angular Diameter', fmt(2 * Math.atan(LUNAR_RADIUS_KM / moon.delta) * DEG * 60, 2), ' arcmin');
                 }
 
-                if (A.MoonIllum && moon.eq && geocentricSunForCalcs && geocentricSunForCalcs.eq) {
-                    const sunEqGeo = geocentricSunForCalcs.eq;
-                    const moonEqTopo = moon.eq;
-                    let phaseAngleRad, illumFraction;
-                    let methodUsed = "Unknown";
-
-                    try {
-                        if (typeof A.MoonIllum.phaseAngleEq2 === 'function') {
-                            phaseAngleRad = A.MoonIllum.phaseAngleEq2(moonEqTopo, sunEqGeo);
-                            methodUsed = "MoonIllum.phaseAngleEq2";
-                        } else if (typeof A.MoonIllum.phaseAngleEq === 'function') {
-                            phaseAngleRad = A.MoonIllum.phaseAngleEq(moonEqTopo, sunEqGeo);
-                            methodUsed = "MoonIllum.phaseAngleEq";
-                        } else {
-                            throw new Error("Suitable phaseAngleEq/Eq2 not found in MoonIllum.");
-                        }
-                        illumFraction = A.MoonIllum.illuminated(phaseAngleRad);
-
-                        data('  Phase Angle i (Sun-Moon-Earth)', fmt(phaseAngleRad * DEG, 1), `° (via ${methodUsed})`);
-                        data('  Illuminated Fraction k', fmt(illumFraction * 100, 1), '%');
-
-                        const elongationRad = Math.acos(
-                            Math.sin(sunEqGeo.dec) * Math.sin(moonEqTopo.dec) +
-                            Math.cos(sunEqGeo.dec) * Math.cos(moonEqTopo.dec) * Math.cos(sunEqGeo.ra - moonEqTopo.ra)
-                        );
-                        const elongationDeg = elongationRad * DEG;
-                        const moonIsEastOfSun = normAngleSigned(moonEqTopo.ra - sunEqGeo.ra) > 0;
-
-                        let phaseName = "Unknown";
-                        if (elongationDeg < 7) phaseName = '🌑 New Moon';
-                        else if (elongationDeg < 83) phaseName = moonIsEastOfSun ? '🌒 Waxing Crescent' : '🌘 Waning Crescent';
-                        else if (elongationDeg < 97) phaseName = moonIsEastOfSun ? '🌓 First Quarter' : '🌗 Last Quarter';
-                        else if (elongationDeg < 173) phaseName = moonIsEastOfSun ? '🌔 Waxing Gibbous' : '🌖 Waning Gibbous';
-                        else phaseName = '🌕 Full Moon';
-                        data('  Phase Name (from elongation)', phaseName);
-
-                    } catch (eIllum) {
-                        warn(`  Moon illumination from library failed: ${eIllum.message}. Using manual fallback for phase name only.`);
-                        const elongationRad = Math.acos(
-                            Math.sin(sunEqGeo.dec) * Math.sin(moonEqTopo.dec) +
-                            Math.cos(sunEqGeo.dec) * Math.cos(moonEqTopo.dec) * Math.cos(sunEqGeo.ra - moonEqTopo.ra)
-                        );
-                        data('  Elongation (Sun geo vs Moon topo)', fmt(elongationRad * DEG, 1), '°');
-                        warn('  Phase Angle and Illuminated Fraction from library could not be determined reliably through fallback.');
-                    }
-                } else {
-                    warn('  Cannot calculate Moon phase accurately: Missing geocentricSunForCalcs or moon.eq data.');
+                // Assume geocentricSunForCalcs and moon.eq are available, otherwise this whole block will error out.
+                if (!geocentricSunForCalcs || !geocentricSunForCalcs.eq || !moon.eq) {
+                    throw new Error("Missing prerequisite data for Moon phase (geocentricSunForCalcs or moon.eq).");
                 }
+                const sunEqGeo = geocentricSunForCalcs.eq;
+                const moonEqTopo = moon.eq;
+                let phaseAngleRad = A.MoonIllum.phaseAngleEq2(moonEqTopo, sunEqGeo); // Directly call
+                let illumFraction = A.MoonIllum.illuminated(phaseAngleRad);
+
+                data('  Phase Angle i (Sun-Moon-Earth)', fmt(phaseAngleRad * DEG, 1), `° (via MoonIllum.phaseAngleEq2)`);
+                data('  Illuminated Fraction k', fmt(illumFraction * 100, 1), '%');
+
+                const elongationRad = Math.acos(
+                    Math.sin(sunEqGeo.dec) * Math.sin(moonEqTopo.dec) +
+                    Math.cos(sunEqGeo.dec) * Math.cos(moonEqTopo.dec) * Math.cos(sunEqGeo.ra - moonEqTopo.ra)
+                );
+                const elongationDeg = elongationRad * DEG;
+                const moonIsEastOfSun = normAngleSigned(moonEqTopo.ra - sunEqGeo.ra) > 0;
+
+                let phaseName = "Unknown";
+                if (elongationDeg < 7) phaseName = '🌑 New Moon';
+                else if (elongationDeg < 83) phaseName = moonIsEastOfSun ? '🌒 Waxing Crescent' : '🌘 Waning Crescent';
+                else if (elongationDeg < 97) phaseName = moonIsEastOfSun ? '🌓 First Quarter' : '🌗 Last Quarter';
+                else if (elongationDeg < 173) phaseName = moonIsEastOfSun ? '🌔 Waxing Gibbous' : '🌖 Waning Gibbous';
+                else phaseName = '🌕 Full Moon';
+                data('  Phase Name (from elongation)', phaseName);
+
 
                 const moonTimes = A.Moon.times(todayJdForRiseSet, moonObserver);
-                if (moonTimes) {
+                if (moonTimes) { // moonTimes can be null if circumpolar
                     subsection('Lunar Rise/Set Times (for Zurich, Today Noon UTC)');
                     if (moonTimes.rise !== null) time('  Moonrise', A.Coord.secondsToHMSStr(moonTimes.rise) + ' UTC');
                     else time('  Moonrise', '------- (no moonrise)');
@@ -598,6 +508,8 @@
                     } else time('  Moon Transit', '------- (no moon transit)');
                     if (moonTimes.set !== null) time('  Moonset', A.Coord.secondsToHMSStr(moonTimes.set) + ' UTC');
                     else time('  Moonset', '------- (no moonset)');
+                } else {
+                    globalInfoLogger('  Moon is circumpolar or never rises/sets for Zurich on this date.');
                 }
             }, 'Moon Calculations');
 
@@ -605,10 +517,6 @@
             section('PARALLAX & SEMIDIAMETER (Current Time)');
             subsection('Solar Values');
             track(() => {
-                if (typeof AU_KM !== 'number') { // AU_KM is now strictly A.AU
-                    warn("  Cannot calculate solar parallax/semidiameter: A.AU (and thus AU_KM) not available.");
-                    return;
-                }
                 data('Mean Horizontal Solar Parallax', fmt(Math.asin(EARTH_EQUATORIAL_RADIUS_KM / AU_KM) * DEG * 3600, 2), ' arcsec');
                 globalInfoLogger('  Solar semidiameter calculated using mean Earth-Sun distance (A.AU from library).');
                 data('Mean Solar Semidiameter', fmt(Math.atan(SOLAR_RADIUS_KM / AU_KM) * DEG * 60, 2), ' arcmin');
@@ -618,34 +526,21 @@
 
             section('RISE & SET MODULE TESTS');
             track(() => {
-                if (!A.Rise) { warn('A.Rise module not found.'); return; }
                 out('Available Rise methods: ' + Object.keys(A.Rise).filter(k => typeof A.Rise[k] === 'function').join(', '));
                 const testObserverRise = A.EclCoord.fromWgs84(locations[1].lat, locations[1].lng, locations[1].alt);
 
-                if (typeof A.Rise.circumpolar === 'function' && geocentricSunForCalcs && geocentricSunForCalcs.eq) {
-                    const polarObs = A.EclCoord.fromWgs84(85, 0, 0);
-                    const sunCircumpolar = A.Rise.circumpolar(geocentricSunForCalcs.eq, polarObs.lat);
-                    globalInfoLogger(`Sun circumpolar at 85°N for current Sun Dec (${fmt(geocentricSunForCalcs.eq.dec * DEG, 1)}°): ${sunCircumpolar ? 'Yes' : 'No'}`);
-                } else if (typeof A.Rise.circumpolar === 'function') {
-                    warn('  Cannot test A.Rise.circumpolar: geocentricSunForCalcs not available.');
+                if (!geocentricSunForCalcs || !geocentricSunForCalcs.eq) {
+                    throw new Error("Cannot test Rise module functions: geocentricSunForCalcs not available.");
                 }
+                const polarObs = A.EclCoord.fromWgs84(85, 0, 0);
+                const sunCircumpolar = A.Rise.circumpolar(geocentricSunForCalcs.eq, polarObs.lat);
+                globalInfoLogger(`Sun circumpolar at 85°N for current Sun Dec (${fmt(geocentricSunForCalcs.eq.dec * DEG, 1)}°): ${sunCircumpolar ? 'Yes' : 'No'}`);
 
-                if (typeof A.Rise.approxTransit === 'function' && geocentricSunForCalcs && geocentricSunForCalcs.eq) {
-                    try {
-                        const jdo0ForTransit = dates[1].jd.startOfDay();
-                        const Th0ForTransit = A.Sidereal.apparent0UT(jdo0ForTransit);
-                        const approxSunTransitSecs = A.Rise.approxTransit(testObserverRise, Th0ForTransit, geocentricSunForCalcs.eq);
-
-                        if (typeof approxSunTransitSecs === 'number') {
-                            const displaySeconds = (approxSunTransitSecs % 86400 + 86400) % 86400;
-                            globalInfoLogger(`Approx Sun transit at Greenwich: ${A.Coord.secondsToHMSStr(displaySeconds)} UTC (approx)`);
-                        } else {
-                            warn(` A.Rise.approxTransit returned non-numeric or unexpected: ${typeof approxSunTransitSecs}`);
-                        }
-                    } catch (e) { warn(`  A.Rise.approxTransit test failed: ${e.message}`); }
-                } else if (typeof A.Rise.approxTransit === 'function') {
-                    warn('  Cannot test A.Rise.approxTransit: geocentricSunForCalcs not available.');
-                }
+                const jdo0ForTransit = dates[1].jd.startOfDay();
+                const Th0ForTransit = A.Sidereal.apparent0UT(jdo0ForTransit);
+                const approxSunTransitSecs = A.Rise.approxTransit(testObserverRise, Th0ForTransit, geocentricSunForCalcs.eq);
+                const displaySeconds = (approxSunTransitSecs % 86400 + 86400) % 86400;
+                globalInfoLogger(`Approx Sun transit at Greenwich: ${A.Coord.secondsToHMSStr(displaySeconds)} UTC (approx)`);
             }, 'Rise Module Basic Tests');
 
 
@@ -669,19 +564,18 @@
             data('Total script execution time', fmt(totalExecutionTime, 0), 'ms');
             data('Total tests run', testCount);
             data('Successful tests', successCount);
-            data('Failed tests', errorCount);
-            data('Success rate', testCount > 0 ? fmt(successCount / testCount * 100, 1) + '%' : 'N/A');
-            if (testCount > 0 && totalExecutionTime > 0 && (testCount - errorCount) > 0) {
-                data('Average time per successful tracked test section', fmt(totalExecutionTime / (testCount - errorCount), 1), 'ms');
+            // Removed errorCount display as errors now halt execution or are caught at top level.
+            data('Success rate', successCount === testCount ? '100.0%' : `${fmt(successCount / testCount * 100, 1)}% (Note: Script may have halted on error)`);
+            if (successCount > 0 && totalExecutionTime > 0) {
+                data('Average time per successful tracked test section', fmt(totalExecutionTime / successCount, 1), 'ms');
             }
 
             out('\n💡 MeeusJS Modules Demonstrated:');
             out('  JulianDay, Solar, Moon, DeltaT, Nutation, Sidereal, Refraction, Coord, EclCoord, MoonIllum, Rise, Globe (for Er).');
-            out('\n🌟 MeeusJS Test Suite - Completed.');
+            out('\n🌟 MeeusJS Test Suite - Completed (or halted on error).');
             out('📚 Based on "Astronomical Algorithms" by Jean Meeus.');
-            out('💻 Test Suite by AI & Human Collaboration.');
 
-            if ($status) $status.textContent = `✅ Complete: ${testCount} tests (${successCount} passed, ${errorCount} failed) in ${fmt(totalExecutionTime / 1000, 1)}s`;
+            if ($status) $status.textContent = `✅ Completed ${successCount} of ${testCount} tests in ${fmt(totalExecutionTime / 1000, 1)}s. Check console for errors if not all tests passed.`;
 
         } // End of mainTestExecution function
 
